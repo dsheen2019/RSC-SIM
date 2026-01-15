@@ -6,7 +6,7 @@ multiple tutorial scripts to avoid code duplication and ensure consistency.
 """
 
 from .instrument_setup import (
-    setup_westford_telescope,
+    setup_telescope,
     setup_satellite_transmitter,
     setup_constant_gain_satellite,
     setup_psd_instrument,

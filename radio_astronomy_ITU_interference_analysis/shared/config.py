@@ -13,10 +13,10 @@ from datetime import datetime, timedelta
 # =============================================================================
 
 # Base directory for tutorial data
-TUTORIAL_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "research_tutorials", "data")  # noqa: E501
+TUTORIAL_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "radio_astronomy_ITU_interference_analysis", "data")  # noqa: E501
 
 # Antenna pattern file
-ANTENNA_PATTERN_FILE = os.path.join(TUTORIAL_DATA_DIR, "single_cut_res.cut")
+ANTENNA_PATTERN_FILE = os.path.join(TUTORIAL_DATA_DIR, "MRT_beam_pattern_1420MHz_RHCP.cut")
 
 # Trajectory files
 CAS_A_TRAJECTORY_FILE = os.path.join(
@@ -67,15 +67,15 @@ TELESCOPE_COORDS = [42.6129479883915, -71.49379366344017, 86.7689687917009]
 # =============================================================================
 
 # Satellite antenna parameters
-SATELLITE_RADIATION_EFFICIENCY = 0.5
-SATELLITE_MAX_GAIN = 39.3  # dBi
-SATELLITE_HALF_BEAMWIDTH = 3.0  # degrees
-SATELLITE_PHYSICAL_TEMP = 0.0  # K
+SATELLITE_RADIATION_EFFICIENCY = 1.0
+SATELLITE_MAX_GAIN = 0  # dBi
+SATELLITE_HALF_BEAMWIDTH = 120  # degrees
+SATELLITE_PHYSICAL_TEMP = 5.0  # K
 
 # Satellite transmission parameters
-SATELLITE_FREQUENCY = 11.325e9  # Hz
+SATELLITE_FREQUENCY = 1.4135e9  # Hz
 SATELLITE_BANDWIDTH = 250e6  # Hz
-SATELLITE_TRANSMIT_POWER = -15 + 10 * 2.477  # dBW (10*log10(300))
+SATELLITE_TRANSMIT_POWER = 1  # dBW (10*log10(300))
 
 # =============================================================================
 # SKY MODEL PARAMETERS
