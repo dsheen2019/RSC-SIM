@@ -45,10 +45,10 @@ def radiated_power_to_gain(rad_pow: np.ndarray, alphas: np.ndarray,
     rad_pow_avg = trapezoid(trapezoid(rad_pow_map * np.sin(a)[:, np.newaxis], b), a) / (4 * np.pi)
 
     # Directivity
-    dir = rad_pow / rad_pow_avg
+    directivity = rad_pow / rad_pow_avg
 
     # Gain
-    return eta_rad * dir
+    return eta_rad * directivity
 
 
 def interpolate_gain(gain: np.ndarray, alphas: np.ndarray,

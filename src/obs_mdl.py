@@ -3,11 +3,17 @@
 # """
 
 import numpy as np
+from scipy.interpolate import RegularGridInterpolator
 from typing import Callable, Optional, Dict, Any
-from coord_frames import ground_to_beam_coord_vectorized
+from coord_frames import ground_to_beam_coord_vectorized, beam_to_ground_coord_vectorized
 
 
-def model_observed_temp(observation, sky_mdl: Callable, constellation=None, beam_avoidance=False) -> np.ndarray:
+def model_observed_temp(
+    observation, 
+    source_mdl: Callable,
+    background_mdl: Callable, 
+    constellation=None, 
+    beam_avoidance=False) -> np.ndarray:
     """
     Optimized using advanced NumPy operations and vectorization.
     Vectorizes per-time across satellites and frequencies; only loops over
@@ -15,7 +21,8 @@ def model_observed_temp(observation, sky_mdl: Callable, constellation=None, beam
 
     Args:
         observation: Observation object containing trajectory and instrument data
-        sky_mdl: Callable function for sky model
+        source_mdl: Callable function for observed point sopurce temperature contributions
+        background_mdl: Callable function for sky and ground noise for telescope
         constellation: Optional constellation object(s) for satellite interference
         beam_avoidance: If True, uses non-vectorized approach for beam avoidance calculations
     """  # noqa: E501
@@ -69,8 +76,9 @@ def model_observed_temp(observation, sky_mdl: Callable, constellation=None, beam
         caz_tel_t = caz_tel_grid[t_idx]
 
         # Vectorize sky model computation for all pointings and frequencies
+        # this is wrong, sky model and ground model need to be integrated over the pattern
         T_sky_arr = np.array([
-            [sky_mdl(dec, caz, time, f) for f in f_RX_array]
+            [background_mdl(dec, caz, time, f) for f in f_RX_array]
             for dec, caz in zip(dec_tel_t, caz_tel_t)
         ], dtype=np.float64)
         T_RX_vals = np.array([T_RX_func(time, f) for f in f_RX_array], dtype=np.float64)
@@ -143,7 +151,8 @@ def model_observed_temp(observation, sky_mdl: Callable, constellation=None, beam
 
 def model_observed_temp_with_atmospheric_refraction_vectorized(
     observation,
-    sky_mdl: Callable,
+    source_mdl: Callable,
+    background_mdl: Callable,
     constellation=None,
     beam_avoidance=False,
     atmospheric_refraction: Optional[Dict[str, Any]] = None
@@ -165,7 +174,8 @@ def model_observed_temp_with_atmospheric_refraction_vectorized(
 
     Args:
         observation: Observation object containing trajectory and instrument data
-        sky_mdl: Callable function for sky model
+        source_mdl: Callable function for observed point sopurce temperature contributions
+        background_mdl: Callable function for sky and ground noise for telescope
         constellation: Optional constellation object(s) for satellite interference
         beam_avoidance: If True, uses non-vectorized approach for beam avoidance calculations
         atmospheric_refraction: Dictionary containing atmospheric refraction configuration:
@@ -274,7 +284,7 @@ def model_observed_temp_with_atmospheric_refraction_vectorized(
 
         # Vectorized sky model computation
         T_sky_arr = np.array([
-            [sky_mdl(dec, caz, time_step, f) for dec, caz, f in zip(dec_row, caz_row, freq_row)]
+            [background_mdl(dec, caz, time_step, f) for dec, caz, f in zip(dec_row, caz_row, freq_row)]
             for dec_row, caz_row, freq_row in zip(dec_mesh, caz_mesh, freq_mesh)
         ], dtype=np.float64)
 
@@ -404,3 +414,101 @@ def calculate_atmospheric_refraction_correction_vectorized(elevations_deg, atmos
     refraction_corrections = np.clip(refraction_corrections, 0.0, 0.5)
 
     return refraction_corrections
+
+
+def generate_beam_aware_background_model(
+    instrument,
+    sky_mdl: Callable,
+    ground_mdl: Callable,
+    alpha_step = 1,
+    beta_step = 5,
+    dec_step=1,
+    az_step = 10,
+    ):
+    """
+    Generates a simple model of the external noise temperature contribution vs pointing \
+    angle for background thermal noise to be used by observation functions fully integrates 
+    ground and sky noise over the antenna pattern to produce true result.
+
+    In future might be nice to make a version of this that uses the known terrain 
+    for a better approximation at low elevation angles
+
+    Args:
+        instrument: instance of the Instrument class with an antenna model and associated coordinates
+        sky_mdl:    sky noise model as a function of declination and azimuth
+                        Should at minimum include atmospheric noise and cmb contribution
+        ground_mdl: ground noise model as a function of declination and azimuth
+        dec_step:    model resolution in declination
+        caz_step:    model resolution in azimuth
+
+    Returns: 
+        background_mdl: interpolator for one time computation of system temperature vs telescope pointing position
+    """ 
+
+    max_dec = 90 #don't compute below horizon
+
+    #get antenna pattern
+    ant = instrument.get_antenna() 
+
+    #generate azel grid for noise field
+
+    ndec_step = 1
+    ncaz_step = 5
+
+    ncaz_grid = np.arange(-ncaz_step, 360+ncaz_step, ncaz_step)
+    ndec_grid = np.arange(-ndec_step, 180+ndec_step, ndec_step)
+
+    n_caz = len(ncaz_grid)
+    n_dec = len(ndec_grid)
+
+    nDec, nCaz  = np.meshgrid(ndec_grid, ncaz_grid, indexing='ij')
+
+    #compute_noise_field
+
+    noise_field = np.zeros_like(nDec)
+
+    #sky_noise_field 
+    noise_field[np.where(ndec_grid<90)[0]] = sky_mdl(nDec[np.where(ndec_grid<90)[0]], nCaz[np.where(ndec_grid<90)[0]])
+    #ground_noise_field
+    noise_field[np.where(ndec_grid>=90)[0]] = ground_mdl(nDec[np.where(ndec_grid>=90)[0]], nCaz[np.where(ndec_grid>=90)[0]])
+
+
+    #create interpolateor function for the noise field
+
+    noise_interp = RegularGridInterpolator((np.radians(ndec_grid), np.radians(ncaz_grid)), noise_field, method='linear')
+
+
+    #####
+    # generate sampling grid in the telescope frame
+    alpha_grid = np.arange(0, 180+alpha_step, alpha_step)
+    beta_grid = np.arange(0, 360+beta_step, beta_step)
+
+    n_alpha = len(alpha_grid)
+    n_beta = len(beta_grid)
+
+    Alphas, Betas  = np.meshgrid(alpha_grid, beta_grid, indexing='ij')
+
+    pattern = ant.get_gain_values(np.radians(Alphas), np.radians(Betas))
+
+    int_weights = 1 / (4 * np.pi) * np.sin(np.radians(Alphas)) * np.radians(alpha_step) * np.radians(beta_step)
+    int_weights = int_weights/np.sum(int_weights*pattern) * ant.rad_eff
+
+    declinations = np.arange(-dec_step, max_dec+dec_step, dec_step)
+
+    ## integrate over antenna pattern
+
+    T_ext = np.zeros(np.shape(declinations), dtype=np.float64)
+
+    for i, dec in enumerate(declinations):
+
+        Dec, Az = beam_to_ground_coord_vectorized(np.radians(Alphas), np.radians(Betas), np.radians(dec), 0)
+        noise = noise_interp((Dec,Az))
+        T_ext[i] = np.sum(int_weights * pattern * noise)
+
+
+
+    az_grid = np.arange(-az_step, 360+az_step, az_step)
+
+    T_ext_grid=np.ones((len(declinations),len(az_grid)))*T_ext.reshape(len(T_ext),1) #expand to full dimension again
+
+    return RegularGridInterpolator((declinations, az_grid), T_ext_grid, method='linear')
